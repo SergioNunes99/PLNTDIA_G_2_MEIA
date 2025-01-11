@@ -11,6 +11,7 @@
 # Aqui, a genetica é composta por 27 variaveis, cada variavel composta por 2 atributos
 import copy
 import csv
+import math
 import random
 import string
 from functools import reduce
@@ -18,6 +19,7 @@ from functools import reduce
 #============================================================================================================
 
 POPULATION_SIZE = 100
+NUMBER_OF_GENERATIONS = 200
 
 #EXAMS
 EXAMS_TYPES = ['BT','ECG','EG','AC','ECO','RX']
@@ -371,7 +373,6 @@ def generate_population():
             #write_individual_to_csv(individual, "Genetic_Individual.csv")
         population.append(individual)
 
-    print("ACABOU!!")
     return population
 
 def calculate_patient_exams_errors(individual):
@@ -419,7 +420,7 @@ def calculate_priority_assertiveness(individual):
     #to ponderate the result, we multiple the value of each priority by their index on the array, with this, the best
     #result is the highest, because is the one with the lower priorities multipling by the lower indexes and the highest
     #priorities multiplying by the highest indexes
-    return reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities)])
+    return reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities) ])
 
 def calculate_patient_preference_assertiveness(individual):
     '''
@@ -478,11 +479,13 @@ def calculate_fitness_function(individual):
 
 
 def roulette_wheel_selection(population_fitness_scores, num_selections):
-    population = list(map(lambda x: x[1], population_fitness_scores))
-    fitness_scores = list(map(lambda x: x[0], population_fitness_scores))
+
+
+    population = list(map(lambda x: x[0], population_fitness_scores))
+    fitness_scores = list(map(lambda x: x[1], population_fitness_scores))
 
     # Calculate the total fitness and relative probabilities
-    total_fitness = sum(list(map(lambda x: x[0], population_fitness_scores)))
+    total_fitness = sum(list(map(lambda x: x[1], population_fitness_scores)))
     if total_fitness == 0:
         raise ValueError("Total fitness is zero, selection cannot be performed.")
 
@@ -490,7 +493,7 @@ def roulette_wheel_selection(population_fitness_scores, num_selections):
 
     # Perform roulette wheel selection
     selected_individuals = []
-    for _ in range(num_selections):
+    for _ in range(math.ceil(num_selections)):
         pick = random.random()
         cumulative_probability = 0.0
         for individual, probability in zip(population, probabilities):
@@ -513,7 +516,11 @@ def selection(population):
 
         population_fitness_score.append((individual, individual1_fitness))
 
-    return roulette_wheel_selection(population_fitness_score, POPULATION_SIZE / 2)
+    population_fitness_score.sort(key=lambda x: x[1])
+    top_individual = population_fitness_score.pop(0)
+    print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]))
+
+    return [top_individual] + roulette_wheel_selection(population_fitness_score, POPULATION_SIZE / 2)
 
 def mutation(individuals):
     return
@@ -546,10 +553,20 @@ def main():
 
     population = generate_population()
 
-    for _ in range(0, 200):
+    generation_number=1
+
+    while generation_number < NUMBER_OF_GENERATIONS:
+        print("GENERATION NUMBER: " +str(generation_number))
         selected_population = selection(population)
-        descendents = crossover(selected_population)
+        print("SELECTED POPULATION COUNT: " + str(len(selected_population)))
+        #descendents = crossover(selected_population)
+        descendents=selected_population
         mutation(descendents)
+
+        population = selected_population + descendents
+        print("END POPULATION COUNT: " + str(len(population)))
+
+        generation_number += 1
 
 
 
