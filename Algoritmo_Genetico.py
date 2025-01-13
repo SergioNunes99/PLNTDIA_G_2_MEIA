@@ -16,6 +16,15 @@ import string
 from functools import reduce
 
 #============================================================================================================
+#Algorithm optimization parameters
+
+CROSSING_RATE = 0.6
+SUBSTITUTION_RATE = 0.4
+MUTATION_RATE = 0.05
+
+
+
+#============================================================================================================
 
 POPULATION_SIZE = 100
 
@@ -100,6 +109,8 @@ MEDICAL_STAFF_DISPONIBILITY = {
 }
 
 MEDICAL_STAFF_COUNT = len(MEDICAL_STAFF_DISPONIBILITY)
+
+INDIVIDUAL_GENES_SIZE = PATIENT_COUNT * EXAM_COUNT
 
 # Gene of the individuals of the population:
 # medical_personnel_id: responsible for the appointment (medical staff)
@@ -326,8 +337,6 @@ def get_appointment_disponibility(appointment_code, genes):
 #Generates the initial population with 100 individuals
 def generate_population():
     #If we have 15 pacients and 6 exams types, we need to schedule 15*6 appointments, thus our individual must have 90 Genes for this specific case
-    individual_genes_size = PATIENT_COUNT * EXAM_COUNT
-
     population = []
 
     for j in range(0, POPULATION_SIZE):
@@ -338,7 +347,7 @@ def generate_population():
         weekday = False
         patient = False
 
-        for i in range(0, individual_genes_size):
+        for i in range(0, INDIVIDUAL_GENES_SIZE):
             appointment_time = []
             appointment_time_loops = 0
 
@@ -371,7 +380,6 @@ def generate_population():
             #write_individual_to_csv(individual, "Genetic_Individual.csv")
         population.append(individual)
 
-    print("ACABOU!!")
     return population
 
 def calculate_patient_exams_errors(individual):
@@ -477,20 +485,32 @@ def calculate_fitness_function(individual):
             priority_assertiveness * 1000 - patient_preference_assertiveness)
 
 
-def roulette_wheel_selection(population_fitness_scores, num_selections):
-    population = list(map(lambda x: x[1], population_fitness_scores))
-    fitness_scores = list(map(lambda x: x[0], population_fitness_scores))
+def roulette_wheel_selection_and_crossover(population_fitness_scores):
+    """
+    The selection and crossover will happen here, for each pair of individuals selected, we expose them to the crossover.
+    Considering the crossover rate, the parent can be crossed or no. If so, they will generate new individuals, that
+    can be unfeasible.
+    """
+    population = list(map(lambda x: x[0], population_fitness_scores))
+    fitness_scores = list(map(lambda x: x[1], population_fitness_scores))
+
+    #generated descendets on the crossover
+    descendents = []
 
     # Calculate the total fitness and relative probabilities
-    total_fitness = sum(list(map(lambda x: x[0], population_fitness_scores)))
+    total_fitness = sum(list(map(lambda x: x[1], population_fitness_scores)))
     if total_fitness == 0:
         raise ValueError("Total fitness is zero, selection cannot be performed.")
 
     probabilities = [score / total_fitness for score in fitness_scores]
 
+    #number of individuals to select
+    num_selections = (1 - SUBSTITUTION_RATE) * len(population_fitness_scores)
+
     # Perform roulette wheel selection
     selected_individuals = []
-    for _ in range(num_selections):
+    individuals_to_crossover = []
+    for _ in range(int(num_selections)):
         pick = random.random()
         cumulative_probability = 0.0
         for individual, probability in zip(population, probabilities):
@@ -498,11 +518,16 @@ def roulette_wheel_selection(population_fitness_scores, num_selections):
             if pick <= cumulative_probability:
                 selected_individuals.append(individual)
                 break
+        #For each two individuals selected, we expose them to the crossover
+        if len(individuals_to_crossover) == 2:
+            descendents.append(crossover(individuals_to_crossover))
+            individuals_to_crossover = []
+
 
     return selected_individuals
 
 
-def selection(population):
+def selection_and_crossover(population):
     """
     Calculate the fitness function of each individual and call the roullete wheel selection
     """
@@ -513,28 +538,45 @@ def selection(population):
 
         population_fitness_score.append((individual, individual1_fitness))
 
-    return roulette_wheel_selection(population_fitness_score, POPULATION_SIZE / 2)
+    return roulette_wheel_selection_and_crossover(population_fitness_score)
 
-def mutation(individuals):
+def mutation(individual):
+    """
+    To mutate the individual, we will pick a gene randomly and mutate the assign random values to all the genes
+    internal values
+    """
+
+    #Subject the individual to the mutation rate
+
     return
 
-def crossover(selected_individuals):
+def crossover(parents):
     """
-    Crossover using a custom technique and ensure the solution stays feasible
+    Crossover can generate unfeasible solutions
+
+    For the crossover, our point of cut will be the middle of the individuals
     """
+
+    #Case the random number is bigger that the crossing rate, do not cross the individuals
+    crossing_coin_toss = random.random()
+    if crossing_coin_toss > CROSSING_RATE:
+        return []
+
     descendents = []
 
-    for _ in range(int(POPULATION_SIZE / 2)):
-        parent1_index = random.randint(0, len(selected_individuals))
-        parent2_index = random.choice([i for i in range(0, len(selected_individuals) + 1) if i != parent1_index])
+    point_of_cut_index = int(INDIVIDUAL_GENES_SIZE/2)
 
-        parent1 = selected_individuals[parent1_index]
-        parent2 = selected_individuals[parent2_index]
+    parent1_part1 = parents[0].genes[0:point_of_cut_index]
+    parent1_part2 = parents[0].genes[point_of_cut_index:]
 
-        [(med1, 100, 'RX'), (med1, 200, 'RX'), (med1, 300, 'RX')]
-        [(med1, 300, 'RX'), (med1, 100, 'RX'), (med1, 200, 'RX')]
+    parent2_part1 = parents[1].genes[0:point_of_cut_index]
+    parent2_part2 = parents[1].genes[point_of_cut_index:]
 
-    return
+    descendents.append(Individual(genes = parent1_part1 + parent2_part2))
+    descendents.append(Individual(genes = parent2_part1 + parent1_part2))
+
+    return descendents
+
 
 def main():
 
@@ -547,11 +589,9 @@ def main():
     population = generate_population()
 
     for _ in range(0, 200):
-        selected_population = selection(population)
+        selected_population = selection_and_crossover(population)
         descendents = crossover(selected_population)
         mutation(descendents)
-
-
 
     i=0
     for individual in population:
