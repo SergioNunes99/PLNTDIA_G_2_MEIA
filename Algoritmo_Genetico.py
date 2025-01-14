@@ -544,7 +544,7 @@ def selection_and_crossover(population):
     top_individual = population_fitness_score.pop(0)
     print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]))
 
-    return [top_individual] + roulette_wheel_selection_and_crossover(population_fitness_score)
+    return [top_individual[0]] + roulette_wheel_selection_and_crossover(population_fitness_score)
 
 def mutation(individual):
     """
