@@ -24,7 +24,7 @@ SUBSTITUTION_RATE = 0.4
 MUTATION_RATE = 0.05
 
 
-
+6
 #============================================================================================================
 
 POPULATION_SIZE = 100
@@ -131,6 +131,11 @@ class Gene:
         self.weekday = weekday
         self.patient_id = patient_id
         self.room = room
+
+    def __str__(self):
+        return (f"Medical Staff={self.medical_personnel_id}, appointment_minute_of_day_start={self.appointment_minute_of_day_start}, "
+                f"appointment_minute_of_day_end={self.appointment_minute_of_day_end}, exam_type={self.exam_type}, weekday={self.weekday},"
+                f"patient_id={self.patient_id}, room={self.room}")
 
 class Individual:
     def __init__(self, genes: [Gene]):
@@ -338,7 +343,7 @@ def get_appointment_disponibility(appointment_code, genes):
 
 #Generates the initial population with 100 individuals
 def generate_population():
-    #If we have 15 pacients and 6 exams types, we need to schedule 15*6 appointments, thus our individual must have 90 Genes for this specific case
+    #If we have 15 patients and 6 exams types, we need to schedule 15*6 appointments, thus our individual must have 90 Genes for this specific case
     population = []
 
     for j in range(0, POPULATION_SIZE):
@@ -546,15 +551,62 @@ def selection_and_crossover(population):
 
     return [top_individual[0]] + roulette_wheel_selection_and_crossover(population_fitness_score)
 
-def mutation(individual):
+# def mutation(individuals):
+#     """
+#     To mutate the individual, we will pick a gene randomly and mutate the assign random values to all the genes
+#     internal values
+#     """
+#
+#     selected_individual_index = random.randint(0, len(individuals) - 1)
+#     selected_individual = individuals[selected_individual_index]
+#
+#     selected_gene_index = random.randint(0, len(selected_individual.genes) - 1)
+#
+#     exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
+#     patient = random.randint(1, PATIENT_COUNT)
+#     appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, selected_individual.genes)
+#
+#     gene = Gene(medical_personnel_id=medical_staff, appointment_minute_of_day_start=appointment_time[0],
+#                 appointment_minute_of_day_end=appointment_time[1], exam_type=exam_type, weekday=weekday,
+#                 patient_id=patient, room=room)
+#
+#     # Assign the new gene to the selected individual's genes
+#     selected_individual.genes[selected_gene_index] = gene
+#
+#     # Replace the individual back in the population
+#     individuals[selected_individual_index] = selected_individual
+#
+#     return individuals
+
+
+def mutation(individuals):
     """
-    To mutate the individual, we will pick a gene randomly and mutate the assign random values to all the genes
+    To mutate the individual, we will assign random values to all the genes
     internal values
     """
 
-    #Subject the individual to the mutation rate
+    selected_individual_index = random.randint(0, len(individuals) - 1)
+    selected_individual = individuals[selected_individual_index]
+    new_genes = []
+    for i in range(len(selected_individual.genes)):
 
-    return
+        exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
+        patient = random.randint(1, PATIENT_COUNT)
+        appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, selected_individual.genes)
+
+        gene = Gene(medical_personnel_id=medical_staff, appointment_minute_of_day_start=appointment_time[0],
+                appointment_minute_of_day_end=appointment_time[1], exam_type=exam_type, weekday=weekday,
+                patient_id=patient, room=room)
+
+        # Assign the new gene to the selected individual's genes
+        new_genes.append(gene)
+
+    selected_individual.genes = new_genes
+
+    # Replace the individual back in the population
+    individuals[selected_individual_index] = selected_individual
+
+    return individuals
 
 def crossover(parents):
     """
@@ -593,7 +645,7 @@ def main():
     #    - CRITÉRIO DE PARAGEM
 
     population = generate_population()
-
+    print(population)
     generation_number=1
 
     while generation_number < NUMBER_OF_GENERATIONS:
@@ -602,9 +654,9 @@ def main():
         print("SELECTED POPULATION COUNT: " + str(len(selected_population)))
         #descendents = crossover(selected_population)
         descendents=selected_population
-        mutation(descendents)
+        mutated=mutation(descendents)
 
-        population = selected_population + descendents
+        population = selected_population + mutated
         print("END POPULATION COUNT: " + str(len(population)))
 
         generation_number += 1
