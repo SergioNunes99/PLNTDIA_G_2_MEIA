@@ -19,15 +19,16 @@ from functools import reduce
 #============================================================================================================
 #Algorithm optimization parameters
 
-CROSSING_RATE = 0.6
+CROSSING_RATE = 0.7
 SUBSTITUTION_RATE = 0.4
 MUTATION_RATE = 0.05
 
+MIN_POPULATION_SIZE = 90
+MAX_POPULATION_SIZE = 120
 
-6
 #============================================================================================================
 
-POPULATION_SIZE = 100
+INITIAL_POPULATION_SIZE = 100
 NUMBER_OF_GENERATIONS = 200
 
 #EXAMS
@@ -346,7 +347,7 @@ def generate_population():
     #If we have 15 patients and 6 exams types, we need to schedule 15*6 appointments, thus our individual must have 90 Genes for this specific case
     population = []
 
-    for j in range(0, POPULATION_SIZE):
+    for j in range(0, INITIAL_POPULATION_SIZE):
         individual_genes = []
 
         medical_staff = False
@@ -492,44 +493,44 @@ def calculate_fitness_function(individual):
             priority_assertiveness * 1000 - patient_preference_assertiveness)
 
 
-def roulette_wheel_selection_and_crossover(population_fitness_scores):
-    """
-    The selection and crossover will happen here, for each pair of individuals selected, we expose them to the crossover.
-    Considering the crossover rate, the parent can be crossed or no. If so, they will generate new individuals, that
-    can be unfeasible.
-    """
+def selection(population_fitness_scores):
     population = list(map(lambda x: x[0], population_fitness_scores))
     fitness_scores = list(map(lambda x: x[1], population_fitness_scores))
-
-    #generated descendets on the crossover
-    descendents = []
 
     # Calculate the total fitness and relative probabilities
     total_fitness = sum(list(map(lambda x: x[1], population_fitness_scores)))
     if total_fitness == 0:
         raise ValueError("Total fitness is zero, selection cannot be performed.")
 
-    probabilities = [score / total_fitness for score in fitness_scores]
+    #probabilities = [score / total_fitness for score in fitness_scores]
 
     #number of individuals to select
-    num_selections = (1 - SUBSTITUTION_RATE) * len(population_fitness_scores)
+    num_selections = math.ceil((1 - SUBSTITUTION_RATE) * len(population_fitness_scores))
+
+    #case the population size increases or decreases too much, set it to the default
+    if num_selections < MIN_POPULATION_SIZE or num_selections > MAX_POPULATION_SIZE:
+        num_selections = math.ceil((1 - SUBSTITUTION_RATE) * INITIAL_POPULATION_SIZE)
 
     # Perform roulette wheel selection
-    selected_individuals = []
-    individuals_to_crossover = []
-    for _ in range(int(num_selections)):
-        pick = random.random()
-        cumulative_probability = 0.0
-        for individual, probability in zip(population, probabilities):
-            cumulative_probability += probability
-            if pick <= cumulative_probability:
-                selected_individuals.append(individual)
-                break
-        #For each two individuals selected, we expose them to the crossover
-        if len(individuals_to_crossover) == 2:
-            descendents.append(crossover(individuals_to_crossover))
-            individuals_to_crossover = []
+    #selected_individuals = []
+    #individuals_to_crossover = []
+    #for _ in range(int(num_selections)):
+    #    pick = random.random()
+    #    cumulative_probability = 0.0
+    #    for individual, probability in zip(population, probabilities):
+    #        cumulative_probability += probability
+    #        if pick <= cumulative_probability:
+    #            selected_individuals.append(individual)
+    #            break
+    #    #For each two individuals selected, we expose them to the crossover
+    #    if len(individuals_to_crossover) == 2:
+    #        descendents.append(crossover(individuals_to_crossover))
+    #        individuals_to_crossover = []
 
+    if math.ceil(num_selections) % 2 == 0:
+        selected_individuals = population[:num_selections]
+    else:
+        selected_individuals = population[:num_selections - 1]
 
     return selected_individuals
 
@@ -549,7 +550,14 @@ def selection_and_crossover(population):
     top_individual = population_fitness_score.pop(0)
     print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]))
 
-    return [top_individual[0]] + roulette_wheel_selection_and_crossover(population_fitness_score)
+    selected_pop = selection(population_fitness_score)
+    descendents = []
+    for index in range(0, len(selected_pop) - 1, 2):
+        crossover_result = crossover([selected_pop[index], selected_pop[index + 1]])
+        if crossover_result:
+            descendents += crossover_result
+
+    return [top_individual[0]] + selected_pop, descendents
 
 # def mutation(individuals):
 #     """
@@ -585,26 +593,32 @@ def mutation(individuals):
     internal values
     """
 
-    selected_individual_index = random.randint(0, len(individuals) - 1)
-    selected_individual = individuals[selected_individual_index]
+    #selected_individual_index = random.randint(0, len(individuals) - 1)
+    #selected_individual = individuals[selected_individual_index]
     new_genes = []
-    for i in range(len(selected_individual.genes)):
 
-        exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
-        patient = random.randint(1, PATIENT_COUNT)
-        appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, selected_individual.genes)
+    for index, individual in enumerate(individuals):
+        rand = random.random()
+        if rand > MUTATION_RATE:
+            continue
+        for i in range(len(individual.genes)):
 
-        gene = Gene(medical_personnel_id=medical_staff, appointment_minute_of_day_start=appointment_time[0],
-                appointment_minute_of_day_end=appointment_time[1], exam_type=exam_type, weekday=weekday,
-                patient_id=patient, room=room)
+            exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
+            patient = random.randint(1, PATIENT_COUNT)
+            appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, individual.genes)
 
-        # Assign the new gene to the selected individual's genes
-        new_genes.append(gene)
+            gene = Gene(medical_personnel_id=medical_staff, appointment_minute_of_day_start=appointment_time[0],
+                    appointment_minute_of_day_end=appointment_time[1], exam_type=exam_type, weekday=weekday,
+                    patient_id=patient, room=room)
 
-    selected_individual.genes = new_genes
+            # Assign the new gene to the selected individual's genes
+            new_genes.append(gene)
 
-    # Replace the individual back in the population
-    individuals[selected_individual_index] = selected_individual
+        individual.genes = new_genes
+        individuals[index] = individual
+
+        # Replace the individual back in the population
+        #individuals[selected_individual_index] = selected_individual
 
     return individuals
 
@@ -650,10 +664,9 @@ def main():
 
     while generation_number < NUMBER_OF_GENERATIONS:
         print("GENERATION NUMBER: " +str(generation_number))
-        selected_population = selection_and_crossover(population)
+        selected_population, descendents = selection_and_crossover(population)
         print("SELECTED POPULATION COUNT: " + str(len(selected_population)))
         #descendents = crossover(selected_population)
-        descendents=selected_population
         mutated=mutation(descendents)
 
         population = selected_population + mutated
