@@ -43,6 +43,16 @@ EXAMS_DURATION = {'BT': 10,
 
 EXAM_COUNT = len(EXAMS_TYPES)
 
+#================================ FITNESS =======================================================================
+PRIORITY_BEST_CASE = 0
+PRIORITY_WORST_CASE= 0
+
+FITNESS_ERRORS_WEIGHT = 0.3
+FITNESS_UNSCHEDULED_EXAMS_WEIGHT = 0.3
+FITNESS_PRIORITY_WEIGHT = 0.3
+FITNESS_PREFERENCE_WEIGHT = 0.1
+
+#================================================================================================================
 
 #ROOMS
 rooms = ['room1', 'room2', 'room3', 'room4', 'room5', 'room6', 'room7']
@@ -392,8 +402,8 @@ def generate_population():
 
 def calculate_patient_exams_errors(individual):
     '''
-    Calculates how many times a patient has the same exam scheduled + the times a exam is missing for a patient + the quantity
-    of appointments scheduled for init_time and end_time 0
+    Calculates how many times a patient has the same exam scheduled + the times a exam is missing
+    for a patient + the quantity of appointments scheduled for init_time and end_time 0
     '''
     errors_count = 0
 
@@ -405,14 +415,18 @@ def calculate_patient_exams_errors(individual):
             elif filter_count_result == 0:
                 errors_count += 1
 
-    return errors_count
+    normalized_value = normalize(errors_count, 0, PATIENT_COUNT* len(individual.genes))
+
+    return normalized_value
 
 def calculate_unscheduled_exams_due_lack_disponibility(individual):
     '''
     Calculates the number of exams not scheduled due to lack of disponibility
     '''
 
-    return len(list(filter(lambda x: x.appointment_minute_of_day_start == 0, individual.genes)))
+    number_exames_unscheduled= len(list(filter(lambda x: x.appointment_minute_of_day_start == 0, individual.genes)))
+
+    return normalize(number_exames_unscheduled, 0, PATIENT_COUNT* EXAM_COUNT)
 
 def calculate_priority_assertiveness(individual):
     '''
@@ -432,10 +446,18 @@ def calculate_priority_assertiveness(individual):
     #
     #there are PATIENT_COUNT*EXAM_COUNT genes, hence PATIENT_COUNT*EXAM_COUNT indexes on the ordered_priorities array
     #
-    #to ponderate the result, we multiple the value of each priority by their index on the array, with this, the best
+    #to ponderate the result, we multiply the value of each priority by their index on the array, with this, the best
     #result is the highest, because is the one with the lower priorities multipling by the lower indexes and the highest
     #priorities multiplying by the highest indexes
-    return reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities) ])
+
+    fitness = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities) ])
+
+    res = 1- normalize(fitness, PRIORITY_BEST_CASE, PRIORITY_WORST_CASE)
+
+    if res > 1:
+        res = 1
+
+    return res
 
 def calculate_patient_preference_assertiveness(individual):
     '''
@@ -452,7 +474,12 @@ def calculate_patient_preference_assertiveness(individual):
         else:
             result += abs(patient_weekday_preference - appointment.appointment_minute_of_day_start)
 
-    return result
+
+    result_normalized = normalize(result, 0, 720 * len(individual.genes))
+
+    return result_normalized
+
+
 
 def calculate_fitness_function(individual):
     '''
@@ -475,23 +502,44 @@ def calculate_fitness_function(individual):
             - INDIVIDUAL UNFEASIBLE LEVEL
     '''
     #the more errors we got, the worse the result is
-    patient_exams_errors = calculate_patient_exams_errors(individual)
+    patient_exams_errors_penalization = calculate_patient_exams_errors(individual)
 
     # the more unscheduled exams we got, the worse the result is
-    unscheduled_exams = calculate_unscheduled_exams_due_lack_disponibility(individual)
+    unscheduled_exams_penalization = calculate_unscheduled_exams_due_lack_disponibility(individual)
 
-    #an higher output from this function indicates a better priority assertiveness
-    priority_assertiveness = calculate_priority_assertiveness(individual)
+    #a higher output from this function indicates a better priority assertiveness
+    priority_assertiveness_penalization = calculate_priority_assertiveness(individual)
 
-    patient_preference_assertiveness = calculate_patient_preference_assertiveness(individual)
+    patient_preference_assertiveness_penalization = calculate_patient_preference_assertiveness(individual)
 
     #TODO:: Here we can also include the weighting regarding the medical staff distribution
     #medical_staff_distribution_assertiveness = calculate_medical_staff_distribution_assertiveness(individual)
 
-    #MINIMIZE THE SUM OF THE CRITERIAS
-    return (patient_exams_errors * 1000000 + unscheduled_exams * 1000000 -
-            priority_assertiveness * 1000 - patient_preference_assertiveness)
 
+
+    total_weighted_penalization = (patient_exams_errors_penalization * FITNESS_ERRORS_WEIGHT
+                                    + unscheduled_exams_penalization * FITNESS_UNSCHEDULED_EXAMS_WEIGHT
+                                    + priority_assertiveness_penalization * FITNESS_PRIORITY_WEIGHT
+                                    +patient_preference_assertiveness_penalization * FITNESS_PREFERENCE_WEIGHT)
+
+    max_penalization_pond = (FITNESS_ERRORS_WEIGHT+ FITNESS_UNSCHEDULED_EXAMS_WEIGHT+
+                             FITNESS_PRIORITY_WEIGHT + FITNESS_PREFERENCE_WEIGHT)
+
+    normalized_penalization = total_weighted_penalization/max_penalization_pond
+
+    #print(f"Fitness calculation - err*werr: {patient_exams_errors_penalization * FITNESS_ERRORS_WEIGHT},"
+    #      f" us*wus: {unscheduled_exams_penalization * FITNESS_UNSCHEDULED_EXAMS_WEIGHT}, "
+    #      f"pr*wpr: {priority_assertiveness_penalization * FITNESS_PRIORITY_WEIGHT}, "
+    #      f"pre*wpre: {patient_preference_assertiveness_penalization * FITNESS_PREFERENCE_WEIGHT}."
+    #      f"total_weighted_penalization: {total_weighted_penalization:.2f}, ,"
+    #      f"normalized_penalization : {normalized_penalization},"
+    #      f"RESULT: {1 - normalized_penalization}")
+
+    return round(1 - normalized_penalization, 2)
+
+
+def normalize(value, min_value, max_value):
+    return (value - min_value) / (max_value - min_value)
 
 def selection(population_fitness_scores):
     population = list(map(lambda x: x[0], population_fitness_scores))
@@ -548,7 +596,7 @@ def selection_and_crossover(population):
 
     population_fitness_score.sort(key=lambda x: x[1])
     top_individual = population_fitness_score.pop(0)
-    print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]))
+    print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]* 100) + "%")
 
     selected_pop = selection(population_fitness_score)
     descendents = []
@@ -649,6 +697,25 @@ def crossover(parents):
 
     return descendents
 
+def calculate_helper_values(population):
+    global PRIORITY_BEST_CASE
+    global PRIORITY_WORST_CASE
+
+    genes =copy.deepcopy(population[0].genes)
+
+    priorities = []
+
+    for gene in genes:
+        priorities.append(PATIENT_PRIORITY[gene.patient_id])
+
+    priorities.sort()
+    best_scenario = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(priorities)])
+    priorities.sort(reverse=True)
+
+    worst_scenario = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(priorities)])
+
+    PRIORITY_BEST_CASE= best_scenario
+    PRIORITY_WORST_CASE= worst_scenario
 
 def main():
 
@@ -659,7 +726,10 @@ def main():
     #    - CRITÉRIO DE PARAGEM
 
     population = generate_population()
+
+    calculate_helper_values(population)
     print(population)
+
     generation_number=1
 
     while generation_number < NUMBER_OF_GENERATIONS:
@@ -678,7 +748,7 @@ def main():
 
     i=0
     for individual in population:
-        print("FITNESS INDIVIDUO " + str(i) + " --> " + str(calculate_fitness_function(individual)))
+        print(f"INDIVIDUAL {str(i)}: fitness: {str(calculate_fitness_function(individual))}")
         i += 1
 
 main()
