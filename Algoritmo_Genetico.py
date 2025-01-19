@@ -23,7 +23,8 @@ from matplotlib import pyplot as plt
 
 CROSSING_RATE = 0.6
 SUBSTITUTION_RATE = 0.4
-MUTATION_RATE = 0.05
+MUTATION_RATE = 0.5
+PITY_SELECTION_RATE = 0.10
 
 MIN_POPULATION_SIZE = 90
 MAX_POPULATION_SIZE = 120
@@ -124,7 +125,7 @@ PRIORITY_MAX= (1 - MIN_PRIORITY) * INDIVIDUAL_GENES_COUNT
 PRIORITY_MIN= 0
 
 priorities_array = list(PATIENT_PRIORITY.values())
-priorities_array.sort()
+priorities_array.sort(reverse=True)
 
 PERFECT_PRIORITIES = []
 for pr in priorities_array:
@@ -380,7 +381,7 @@ def get_appointment_disponibility(appointment_code, genes):
 
     #O que fazer caso nao haja disponibilidade para a consulta????????????????
     if not appointment_disponibility:
-        return False, False, False, False
+        return False, False, False, 8
 
     else:
         #calculate the time of the appointment
@@ -479,6 +480,9 @@ def calculate_priority_assertiveness(individual, priority_min, priority_max):
     #order the appointments by time
     genes.sort(key=lambda x: (x.weekday, x.appointment_minute_of_day_start))
 
+    #TODO MUDAR SORT PARA TER EMCONTA APENAS AGENDAMENTOS COM DATA
+    #TODO ADICIONAR RESTANTES POR ORDEM DE PRIORIDADES
+
     #get the priorities of the patients from the appointments, ordered by appointment date
     ordered_priorities = list(map(lambda x: PATIENT_PRIORITY[x.patient_id], genes))
 
@@ -503,7 +507,8 @@ def calculate_patient_preference_assertiveness(individual):
         if patient_weekday_preference == 0:
             result += 720
         else:
-            result += abs(patient_weekday_preference - appointment.appointment_minute_of_day_start)
+            if appointment.appointment_minute_of_day_start:
+                result += abs(patient_weekday_preference - appointment.appointment_minute_of_day_start)
 
 
     result_normalized = normalize(result, 0, 720 * len(individual.genes))
@@ -558,13 +563,11 @@ def calculate_fitness_function(individual):
 
     normalized_penalization = total_weighted_penalization/max_penalization_pond
 
-    #print(f"Fitness calculation - err*werr: {patient_exams_errors_penalization * FITNESS_ERRORS_WEIGHT},"
-    #      f" us*wus: {unscheduled_exams_penalization * FITNESS_UNSCHEDULED_EXAMS_WEIGHT}, "
-    #      f"pr*wpr: {priority_assertiveness_penalization * FITNESS_PRIORITY_WEIGHT}, "
-    #      f"pre*wpre: {patient_preference_assertiveness_penalization * FITNESS_PREFERENCE_WEIGHT}."
-    #      f"total_weighted_penalization: {total_weighted_penalization:.2f}, ,"
-    #      f"normalized_penalization : {normalized_penalization},"
-    #      f"RESULT: {1 - normalized_penalization}")
+    #print(f"Fitness calculation - {patient_exams_errors_penalization},"
+    #    f"{unscheduled_exams_penalization}, "
+    #    f"{priority_assertiveness_penalization}, "
+    #    f"{patient_preference_assertiveness_penalization}."
+    #    f"RESULT: {round(1 - normalized_penalization, 2)}")
 
     return round(1 - normalized_penalization, 2)
 
@@ -575,15 +578,13 @@ def normalize(value, min_value, max_value):
     return (value - min_value) / (max_value - min_value)
 
 def selection(population_fitness_scores):
+    population_fitness_scores.sort(key=lambda x: x[1], reverse=True)
     population = list(map(lambda x: x[0], population_fitness_scores))
-    fitness_scores = list(map(lambda x: x[1], population_fitness_scores))
 
     # Calculate the total fitness and relative probabilities
     total_fitness = sum(list(map(lambda x: x[1], population_fitness_scores)))
     if total_fitness == 0:
         raise ValueError("Total fitness is zero, selection cannot be performed.")
-
-    #probabilities = [score / total_fitness for score in fitness_scores]
 
     #number of individuals to select
     num_selections = math.ceil((1 - SUBSTITUTION_RATE) * len(population_fitness_scores))
@@ -592,29 +593,20 @@ def selection(population_fitness_scores):
     if num_selections < MIN_POPULATION_SIZE or num_selections > MAX_POPULATION_SIZE:
         num_selections = math.ceil((1 - SUBSTITUTION_RATE) * INITIAL_POPULATION_SIZE)
 
-    # Perform roulette wheel selection
-    #selected_individuals = []
-    #individuals_to_crossover = []
-    #for _ in range(int(num_selections)):
-    #    pick = random.random()
-    #    cumulative_probability = 0.0
+    num_pity_selections = math.ceil(num_selections * PITY_SELECTION_RATE)
+    num_elitist_selections = math.ceil(num_selections - num_pity_selections)
 
-    #    for individual, probability in zip(population, probabilities):
-    #        cumulative_probability += probability
-    #        if pick <= cumulative_probability:
-    #            selected_individuals.append(individual)
-    #            break
-    #    #For each two individuals selected, we expose them to the crossover
-    #    if len(individuals_to_crossover) == 2:
-    #        descendents.append(crossover(individuals_to_crossover))
-    #        individuals_to_crossover = []
-
-    if math.ceil(num_selections) % 2 == 0:
-        selected_individuals = population[:num_selections]
+    #select elite
+    if num_elitist_selections % 2 == 0:
+        selected_elite_individuals = population[:num_elitist_selections]
     else:
-        selected_individuals = population[:num_selections - 1]
+        selected_elite_individuals = population[:num_elitist_selections - 1]
 
-    return selected_individuals
+    selected_pity_individuals = population[-num_pity_selections:]
+
+    #print("TOP INDIVIDUAL: SCORE: " + str(selected_elite_individuals[0] * 100) + "%")
+
+    return selected_elite_individuals + selected_pity_individuals
 
 
 def selection_and_crossover(population):
@@ -628,18 +620,24 @@ def selection_and_crossover(population):
 
         population_fitness_score.append((individual, individual1_fitness))
 
-    population_fitness_score.sort(key=lambda x: x[1], reverse=True)
-    top_individual = population_fitness_score.pop(0)
-    print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]* 100) + "%")
-
+    selected_pop_aux = []
     selected_pop = selection(population_fitness_score)
     descendents = []
-    for index in range(0, len(selected_pop) - 1, 2):
-        crossover_result = crossover([selected_pop[index], selected_pop[index + 1]])
+    pop_len = len(selected_pop)/2
+    for index in range(0, math.ceil(pop_len)):
+        selected_parent_1_index=random.randint(0, len(selected_pop) - 1)
+        selected_parent_1=selected_pop.pop(selected_parent_1_index)
+        selected_pop_aux.append(selected_parent_1)
+
+        selected_parent_2_index = random.randint(0, len(selected_pop) - 1)
+        selected_parent_2 = selected_pop.pop(selected_parent_2_index)
+        selected_pop_aux.append(selected_parent_2)
+
+        crossover_result = crossover([selected_parent_1, selected_parent_2])
         if crossover_result:
             descendents += crossover_result
 
-    return [top_individual[0]] + selected_pop, descendents
+    return selected_pop_aux, descendents
 
 # def mutation(individuals):
 #     """
@@ -804,11 +802,19 @@ def main():
         generation_number += 1
 
 
-    #population.sort(key=lambda x: x.fitness, reverse=True)
+
+    fitness_pop = []
+    index_best, best_fitness = 0, 0
     i=0
-    for individual in population:
-        print(f"INDIVIDUAL {str(i)}: fitness: {str(calculate_fitness_function(individual))}")
+    for index, individual in enumerate(population):
+        fitness_pop.append(calculate_fitness_function(individual))
+        print(f"INDIVIDUAL {str(i)}: fitness: {str(fitness_pop[index])}")
+        if fitness_pop[index] > best_fitness:
+            best_fitness = fitness_pop[index]
+            index_best = index
         i += 1
+
+    print(str(population[index_best].genes))
 
     generations = list(range(1, len(average_fitness_values) + 1))
 
