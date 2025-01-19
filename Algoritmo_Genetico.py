@@ -51,6 +51,7 @@ EXAM_COUNT = len(EXAMS_TYPES)
 #================================ FITNESS =======================================================================
 
 FITNESS_ERRORS_WEIGHT = 5
+FITNESS_OVERLAPS_WEIGHT = 3
 FITNESS_UNSCHEDULED_EXAMS_WEIGHT = 0.3
 FITNESS_PRIORITY_WEIGHT = 0.3
 FITNESS_PREFERENCE_WEIGHT = 0.1
@@ -68,14 +69,14 @@ best_fitness_values = []
 
 #==============================================================================================================
 #ROOMS
-rooms = ['room1', 'room2', 'room3', 'room4', 'room5', 'room6', 'room7']
+ROOMS = ['room1', 'room2', 'room3', 'room4', 'room5', 'room6', 'room7']
 
-ROOMS_AVAILABLE = {'BT': [rooms[0], rooms[3]],
-'ECG': [rooms[1], rooms[5]],
-'EG': [rooms[2], rooms[6]],
-'AC': [rooms[0]],
-'ECO': [rooms[4], rooms[3]],
-'RX': [rooms[1], rooms[2]]}
+ROOMS_AVAILABLE = {'BT': [ROOMS[0], ROOMS[3]],
+'ECG': [ROOMS[1], ROOMS[5]],
+'EG': [ROOMS[2], ROOMS[6]],
+'AC': [ROOMS[0]],
+'ECO': [ROOMS[4], ROOMS[3]],
+'RX': [ROOMS[1], ROOMS[2]]}
 
 ROOM_FULL_DISPONIBILITY = [[0, 1440]]
 
@@ -464,23 +465,53 @@ def calculate_patient_exams_errors(individual):
 
     return normalized_value
 
-def calculate_scheduling_overlaps(individual):
+def calculate_overlaps(individual):
     overlaps_count = 0
+    for weekday in list(range(0, 7)):
+        for room in ROOMS:
+                room_usages = list(filter(lambda x: x.room == room and x.weekday == weekday, individual.genes))
+                if len(room_usages) > 1:
 
-    for gene in individual.genes:
-        overlaps_count = len(list(filter(lambda x: x.room == gene.room
-                                                   and (x.weekday == gene.weekday or x.medical_personnel_id ==gene.medical_personnel_id)
-                                                   and is_Time_overlaped(x.exam_type, x.appointment_minute_of_day_start,
-                                                                         gene.appointment_minute_of_day_start, gene.exam_type),
-                                         individual.genes)))
-        if overlaps_count > 1:
-            overlaps_count += overlaps_count
+                    for index, room_usage in enumerate(room_usages):
+                        if index == len(room_usages) - 1:
+                            break
+                        appointment_time = EXAMS_DURATION[room_usage.exam_type]
+                        overlaps_list = list(filter(lambda x: room_usage.appointment_minute_of_day_start + appointment_time > x.appointment_minute_of_day_start > room_usage.appointment_minute_of_day_start, room_usages))
+                        overlaps_count += len(overlaps_list)
 
+        for medical_staff in MEDICAL_STAFF_DISPONIBILITY:
+            medical_staff_usages = list(filter(lambda x: x.medical_personnel_id == medical_staff and x.weekday == weekday, individual.genes))
+            if len(medical_staff_usages) > 1:
 
-    normalized_value = normalize(errors_count, 0,
-                                 (len(individual.genes) - 1) + (EXAM_COUNT - 1) + ((PATIENT_COUNT - 1) * EXAM_COUNT))
+                for index, medical_staff_usage in enumerate(medical_staff_usages):
+                    if index == len(medical_staff_usages) - 1:
+                        break
+                    appointment_time = EXAMS_DURATION[medical_staff_usage.exam_type]
+                    overlaps_list = list(filter(lambda x: medical_staff_usage.appointment_minute_of_day_start + appointment_time > x.appointment_minute_of_day_start > medical_staff_usage.appointment_minute_of_day_start,
+                                                medical_staff_usages))
+                    overlaps_count += len(overlaps_list)
+
+    normalized_value = normalize(overlaps_count, 0, (INDIVIDUAL_GENES_COUNT * 2))
 
     return normalized_value
+
+#def calculate_scheduling_overlaps(individual):
+#    overlaps_count = 0
+#
+#    for gene in individual.genes:
+#        overlaps_count = len(list(filter(lambda x: x.room == gene.room
+#                                                   and (x.weekday == gene.weekday or x.medical_personnel_id ==gene.medical_personnel_id)
+#                                                   and is_Time_overlaped(x.exam_type, x.appointment_minute_of_day_start,
+#                                                                         gene.appointment_minute_of_day_start, gene.exam_type),
+#                                         individual.genes)))
+#        if overlaps_count > 1:
+#            overlaps_count += overlaps_count
+#
+#
+#    normalized_value = normalize(errors_count, 0,
+#                                 (len(individual.genes) - 1) + (EXAM_COUNT - 1) + ((PATIENT_COUNT - 1) * EXAM_COUNT))
+#
+#    return normalized_value
 
 def calculate_unscheduled_exams_due_lack_disponibility(individual):
     '''
@@ -568,17 +599,15 @@ def calculate_fitness_function(individual):
 
     patient_preference_assertiveness_penalization = calculate_patient_preference_assertiveness(individual)
 
-    #TODO:: Here we can also include the weighting regarding the medical staff distribution
-    #medical_staff_distribution_assertiveness = calculate_medical_staff_distribution_assertiveness(individual)
-
-
+    overlaps_penalization = calculate_overlaps(individual)
 
     total_weighted_penalization = (patient_exams_errors_penalization * FITNESS_ERRORS_WEIGHT
+                                    + overlaps_penalization * FITNESS_OVERLAPS_WEIGHT
                                     + unscheduled_exams_penalization * FITNESS_UNSCHEDULED_EXAMS_WEIGHT
                                     + priority_assertiveness_penalization * FITNESS_PRIORITY_WEIGHT
                                     +patient_preference_assertiveness_penalization * FITNESS_PREFERENCE_WEIGHT)
 
-    max_penalization_pond = (FITNESS_ERRORS_WEIGHT+ FITNESS_UNSCHEDULED_EXAMS_WEIGHT+
+    max_penalization_pond = (FITNESS_ERRORS_WEIGHT + FITNESS_OVERLAPS_WEIGHT+ FITNESS_UNSCHEDULED_EXAMS_WEIGHT+
                              FITNESS_PRIORITY_WEIGHT + FITNESS_PREFERENCE_WEIGHT)
 
     normalized_penalization = total_weighted_penalization/max_penalization_pond
@@ -953,11 +982,4 @@ def display_schedule_table(schedule):
 
     plt.show()
 
-
-
-#main()
-
-
-
-
-
+main()
