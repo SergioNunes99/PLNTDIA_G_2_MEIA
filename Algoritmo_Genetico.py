@@ -115,13 +115,21 @@ PATIENT_PRIORITY = {
 }
 
 PATIENT_COUNT = len(PATIENT_PREFERENCE)
+INDIVIDUAL_GENES_COUNT = PATIENT_COUNT * EXAM_COUNT
+
 MAX_PRIORITY = max(PATIENT_PRIORITY.values())
 MIN_PRIORITY = min(PATIENT_PRIORITY.values())
 
+PRIORITY_MAX= (1 - MIN_PRIORITY) * INDIVIDUAL_GENES_COUNT
+PRIORITY_MIN= 0
 
-PRIORITY_MAX= reduce(lambda a, b: a + b, [MAX_PRIORITY * x for x in range(0, PATIENT_COUNT* EXAM_COUNT)])
-PRIORITY_MIN= reduce(lambda a, b: a + b, [MIN_PRIORITY * x for x in range(0, PATIENT_COUNT* EXAM_COUNT)])
+priorities_array = list(PATIENT_PRIORITY.values())
+priorities_array.sort()
 
+PERFECT_PRIORITIES = []
+for pr in priorities_array:
+    for _ in range(EXAM_COUNT):
+        PERFECT_PRIORITIES.append(pr)
 
 
 #MEDICAL_STAFF
@@ -141,7 +149,9 @@ MEDICAL_STAFF_DISPONIBILITY = {
 
 MEDICAL_STAFF_COUNT = len(MEDICAL_STAFF_DISPONIBILITY)
 
-INDIVIDUAL_GENES_SIZE = PATIENT_COUNT * EXAM_COUNT
+
+
+CROSSOVER_MASK_GENE = [0,1,0,0,1,1,0]
 
 # Gene of the individuals of the population:
 # medical_personnel_id: responsible for the appointment (medical staff)
@@ -162,9 +172,13 @@ class Gene:
         self.room = room
 
     def __str__(self):
-        return (f"Medical Staff={self.medical_personnel_id}, appointment_minute_of_day_start={self.appointment_minute_of_day_start}, "
-                f"appointment_minute_of_day_end={self.appointment_minute_of_day_end}, exam_type={self.exam_type}, weekday={self.weekday},"
-                f"patient_id={self.patient_id}, room={self.room}")
+        #return (f"Medical Staff={self.medical_personnel_id}, appointment_minute_of_day_start={self.appointment_minute_of_day_start}, "
+        #        f"appointment_minute_of_day_end={self.appointment_minute_of_day_end}, exam_type={self.exam_type}, weekday={self.weekday},"
+        #        f"patient_id={self.patient_id}, room={self.room}")
+        return (
+            f"{self.medical_personnel_id}, {self.appointment_minute_of_day_start}, "
+            f"{self.appointment_minute_of_day_end}, {self.exam_type}, {self.weekday},"
+            f"{self.patient_id}, {self.room}")
 
 class Individual:
     def __init__(self, genes: [Gene]):
@@ -231,6 +245,7 @@ def write_individual_to_csv(individual, filename):
                 gene.patient_id,
                 gene.room
             ])
+
 
 
 
@@ -459,7 +474,6 @@ def calculate_priority_assertiveness(individual, priority_min, priority_max):
     '''
     Calculates the priority assertiveness of the individual
     '''
-
     genes = copy.deepcopy(individual.genes)
 
     #order the appointments by time
@@ -468,16 +482,9 @@ def calculate_priority_assertiveness(individual, priority_min, priority_max):
     #get the priorities of the patients from the appointments, ordered by appointment date
     ordered_priorities = list(map(lambda x: PATIENT_PRIORITY[x.patient_id], genes))
 
-    #for a better suit regarding the priorities, as the index of the array grows, the priorities must grow too, thus,
-    #lower priorities must be in the first indexes of the array, and the higher values at the end of the array
-    #
-    #there are PATIENT_COUNT*EXAM_COUNT genes, hence PATIENT_COUNT*EXAM_COUNT indexes on the ordered_priorities array
-    #
-    #to ponderate the result, we multiply the value of each priority by their index on the array, with this, the best
-    #result is the highest, because is the one with the lower priorities multipling by the lower indexes and the highest
-    #priorities multiplying by the highest indexes
-
-    fitness = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities) ])
+    fitness = 0
+    for index, prio in enumerate(ordered_priorities):
+        fitness += abs(prio - PERFECT_PRIORITIES[index])
 
     res = normalize(fitness, priority_min, priority_max)
 
@@ -591,6 +598,7 @@ def selection(population_fitness_scores):
     #for _ in range(int(num_selections)):
     #    pick = random.random()
     #    cumulative_probability = 0.0
+
     #    for individual, probability in zip(population, probabilities):
     #        cumulative_probability += probability
     #        if pick <= cumulative_probability:
@@ -721,27 +729,41 @@ def mutation(individuals):
 def crossover(parents):
     """
     Crossover can generate unfeasible solutions
-
-    For the crossover, our point of cut will be the middle of the individuals
     """
-
     #Case the random number is bigger that the crossing rate, do not cross the individuals
     crossing_coin_toss = random.random()
     if crossing_coin_toss > CROSSING_RATE:
         return []
 
     descendents = []
+    descendent1_genes = []
+    descendent2_genes = []
 
-    point_of_cut_index = int(INDIVIDUAL_GENES_SIZE/2)
+    for parent_gene_index, gene in enumerate(parents[0].genes):
+        parent1_gene = gene
+        parent2_gene = parents[1].genes[parent_gene_index]
 
-    parent1_part1 = parents[0].genes[0:point_of_cut_index]
-    parent1_part2 = parents[0].genes[point_of_cut_index:]
+        generated_gene_1 = []
+        generated_gene_2 = []
 
-    parent2_part1 = parents[1].genes[0:point_of_cut_index]
-    parent2_part2 = parents[1].genes[point_of_cut_index:]
+        #Cross the gene itself
+        for gene_cel_index, gene_bit in enumerate(CROSSOVER_MASK_GENE):
+            if gene_bit == 0:
+                generated_gene_1.append(list(vars(parent1_gene).values())[gene_cel_index])
+                generated_gene_2.append(list(vars(parent2_gene).values())[gene_cel_index])
+            else:
+                generated_gene_1.append(list(vars(parent2_gene).values())[gene_cel_index])
+                generated_gene_2.append(list(vars(parent1_gene).values())[gene_cel_index])
 
-    descendents.append(Individual(genes = parent1_part1 + parent2_part2))
-    descendents.append(Individual(genes = parent2_part1 + parent1_part2))
+        descendent1_genes.append(Gene(medical_personnel_id=generated_gene_1[0], appointment_minute_of_day_start=generated_gene_1[1],
+                        appointment_minute_of_day_end=generated_gene_1[2], exam_type=generated_gene_1[3], weekday=generated_gene_1[4],
+                                      patient_id=generated_gene_1[5], room=generated_gene_1[6]))
+        descendent2_genes.append(Gene(medical_personnel_id=generated_gene_2[0], appointment_minute_of_day_start=generated_gene_2[1],
+                        appointment_minute_of_day_end=generated_gene_2[2], exam_type=generated_gene_2[3], weekday=generated_gene_2[4],
+                                      patient_id=generated_gene_2[5], room=generated_gene_2[6]))
+
+    descendents.append(Individual(genes = descendent1_genes))
+    descendents.append(Individual(genes = descendent2_genes))
 
     return descendents
 
@@ -762,14 +784,7 @@ def calculate_metrics(population):
     return
 
 def main():
-
-    #TODO: DEFINIR
-    #    - TAXA DE CRUZAMENTO
-    #    - TAXA DE MUTAÇÃO
-    #    - TAXA DE SUBSTITUIÇÃO
-    #    - CRITÉRIO DE PARAGEM
-
-    population = generate_population(INITIAL_POPULATION_SIZE, INDIVIDUAL_GENES_SIZE)
+    population = generate_population(INITIAL_POPULATION_SIZE, INDIVIDUAL_GENES_COUNT)
 
     print(str(population))
 
