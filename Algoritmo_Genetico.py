@@ -28,13 +28,13 @@ SUBSTITUTION_RATE = 0.4
 MUTATION_RATE = 0.5
 PITY_SELECTION_RATE = 0.10
 
-MIN_POPULATION_SIZE = 90
-MAX_POPULATION_SIZE = 120
+MIN_POPULATION_SIZE = 200
+MAX_POPULATION_SIZE = 200
 
 #============================================================================================================
 
-INITIAL_POPULATION_SIZE = 100
-NUMBER_OF_GENERATIONS = 200
+INITIAL_POPULATION_SIZE = 200
+NUMBER_OF_GENERATIONS = 1000
 
 #EXAMS
 EXAMS_TYPES = ['BT','ECG','EG','AC','ECO','RX']
@@ -154,7 +154,7 @@ MEDICAL_STAFF_DISPONIBILITY = {
 MEDICAL_STAFF_COUNT = len(MEDICAL_STAFF_DISPONIBILITY)
 
 
-
+GENERATION_NUMBER=1
 CROSSOVER_MASK_GENE = [0,1,0,0,1,1,0]
 
 # Gene of the individuals of the population:
@@ -185,8 +185,13 @@ class Gene:
             f"{self.patient_id}, {self.room}")
 
 class Individual:
-    def __init__(self, genes: [Gene]):
+    def __init__(self, genes: [Gene], generation_born: int, operation:string, metrics: None):
+        if metrics is None:
+            metrics = []
         self.genes = genes
+        self.generation_born = generation_born
+        self.operation = operation
+        self.metrics = metrics
 
     def __str__(self):
         for gene in self.genes:
@@ -438,7 +443,7 @@ def generate_population(initial_population_size, individual_genes_size):
                         appointment_minute_of_day_end=appointment_time[1], exam_type=exam_type, weekday=weekday, patient_id=patient, room=room)
             individual_genes.append(gene)
 
-        individual = Individual(genes=individual_genes)
+        individual = Individual(genes=individual_genes, generation_born=1, operation="INITIAL_POPULATION", metrics=[])
         #if j == 2:
             #write_individual_to_csv(individual, "Genetic_Individual.csv")
         population.append(individual)
@@ -618,6 +623,12 @@ def calculate_fitness_function(individual):
     #    f"{patient_preference_assertiveness_penalization}."
     #    f"RESULT: {round(1 - normalized_penalization, 2)}")
 
+    individual.metrics = [f"Exam errors: {patient_exams_errors_penalization} ",
+                          f"Unscheduled exams: {unscheduled_exams_penalization}",
+                          f"Priority assertiveness: {priority_assertiveness_penalization}",
+                          f"Patient Preference: {patient_preference_assertiveness_penalization}",
+                          f"Overlaps penalization: {overlaps_penalization}"]
+
     return round(1 - normalized_penalization, 2)
 
 
@@ -770,6 +781,9 @@ def mutation(individuals):
                 patient_id=patient,
                 room=room,
             )
+            individual.generation_born = GENERATION_NUMBER
+            individual.operation = "MUTATION"
+
     return individuals
 
 
@@ -809,8 +823,8 @@ def crossover(parents):
                         appointment_minute_of_day_end=generated_gene_2[2], exam_type=generated_gene_2[3], weekday=generated_gene_2[4],
                                       patient_id=generated_gene_2[5], room=generated_gene_2[6]))
 
-    descendents.append(Individual(genes = descendent1_genes))
-    descendents.append(Individual(genes = descendent2_genes))
+    descendents.append(Individual(genes = descendent1_genes, operation="CROSSOVER", generation_born=GENERATION_NUMBER, metrics=[]))
+    descendents.append(Individual(genes = descendent2_genes, operation="CROSSOVER", generation_born=GENERATION_NUMBER, metrics=[]))
 
     return descendents
 
@@ -830,15 +844,17 @@ def calculate_metrics(population):
 
     return
 
+
+
 def main():
     population = generate_population(INITIAL_POPULATION_SIZE, INDIVIDUAL_GENES_COUNT)
-
+    global GENERATION_NUMBER
     print(str(population))
 
-    generation_number=1
+    GENERATION_NUMBER=1
 
-    while generation_number < NUMBER_OF_GENERATIONS:
-        print("GENERATION NUMBER: " +str(generation_number))
+    while GENERATION_NUMBER < NUMBER_OF_GENERATIONS:
+        print("GENERATION NUMBER: " +str(GENERATION_NUMBER))
         selected_population, descendents = selection_and_crossover(population)
 
         #descendents = crossover(selected_population)
@@ -848,7 +864,7 @@ def main():
 
         calculate_metrics(population)
         print(f"Average population fitness: {str(average_fitness_values[-1])}")
-        generation_number += 1
+        GENERATION_NUMBER += 1
 
 
 
@@ -894,39 +910,6 @@ def parse_schedule(schedules):
         mapped_schedule.append(entry)
     return mapped_schedule
 
-#def plot_schedule(schedule):
-#    """Plot the schedule for a week."""
-#    # Convert weekday numbers to names
-#    weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-#
-#    # Create a figure and axis for the plot
-#    fig, ax = plt.subplots(figsize=(15, 8))
-#
-#    for entry in schedule:
-#        start_hour = entry['appointment_time'][0] // 60
-#        start_minute = entry['appointment_time'][0] % 60
-#        end_hour = entry['appointment_time'][1] // 60
-#        end_minute = entry['appointment_time'][1] % 60
-#
-#        start_time = datetime.time(hour=start_hour, minute=start_minute)
-#        end_time = datetime.time(hour=end_hour, minute=end_minute)
-#
-#        ax.plot(
-#            [entry['weekday'], entry['weekday']],
-#            [start_hour + start_minute / 60, end_hour + end_minute / 60],
-#            label=f"{entry['exam_type']} ({entry['room']})",
-#            linewidth=2
-#        )
-#
-#    ax.set_xticks(range(7))
-#    ax.set_xticklabels(weekdays)
-#    ax.set_xlabel('Day of the Week')
-#    ax.set_ylabel('Hour of the Day')
-#    ax.set_title('Weekly Schedule')
-#    ax.grid(True)
-#    ax.legend(loc='upper right', fontsize='small')
-#
-#    plt.show()
 
 import matplotlib.pyplot as plt
 
