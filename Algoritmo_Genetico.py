@@ -11,12 +11,14 @@
 # Aqui, a genetica é composta por 27 variaveis, cada variavel composta por 2 atributos
 import copy
 import csv
+import datetime
 import math
 import random
 import string
 from functools import reduce
 
-from matplotlib import pyplot as plt
+import pandas as pd
+from matplotlib import pyplot as plt, table
 
 #============================================================================================================
 #Algorithm optimization parameters
@@ -48,7 +50,7 @@ EXAM_COUNT = len(EXAMS_TYPES)
 
 #================================ FITNESS =======================================================================
 
-FITNESS_ERRORS_WEIGHT = 1
+FITNESS_ERRORS_WEIGHT = 5
 FITNESS_UNSCHEDULED_EXAMS_WEIGHT = 0.3
 FITNESS_PRIORITY_WEIGHT = 0.3
 FITNESS_PREFERENCE_WEIGHT = 0.1
@@ -462,6 +464,24 @@ def calculate_patient_exams_errors(individual):
 
     return normalized_value
 
+def calculate_scheduling_overlaps(individual):
+    overlaps_count = 0
+
+    for gene in individual.genes:
+        overlaps_count = len(list(filter(lambda x: x.room == gene.room
+                                                   and (x.weekday == gene.weekday or x.medical_personnel_id ==gene.medical_personnel_id)
+                                                   and is_Time_overlaped(x.exam_type, x.appointment_minute_of_day_start,
+                                                                         gene.appointment_minute_of_day_start, gene.exam_type),
+                                         individual.genes)))
+        if overlaps_count > 1:
+            overlaps_count += overlaps_count
+
+
+    normalized_value = normalize(errors_count, 0,
+                                 (len(individual.genes) - 1) + (EXAM_COUNT - 1) + ((PATIENT_COUNT - 1) * EXAM_COUNT))
+
+    return normalized_value
+
 def calculate_unscheduled_exams_due_lack_disponibility(individual):
     '''
     Calculates the number of exams not scheduled due to lack of disponibility
@@ -707,7 +727,7 @@ def mutation(individuals):
         if random.random() > MUTATION_RATE:
             continue
 
-        for i in range(len(individual.genes)):
+        for i in range(math.ceil(len(individual.genes)/2)):
             exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
             patient = random.randint(1, PATIENT_COUNT)
             appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, individual.genes)
@@ -816,6 +836,8 @@ def main():
 
     print(str(population[index_best].genes))
 
+    mapped_schedule= parse_schedule(population[index_best].genes)
+    display_schedule_table(mapped_schedule)
     generations = list(range(1, len(average_fitness_values) + 1))
 
     plt.plot(generations, average_fitness_values, label="Fitness Médio")
@@ -826,5 +848,116 @@ def main():
     plt.legend()
     plt.show()
 
-main()
+def parse_schedule(schedules):
+
+    """Parse the schedule string into a list of dictionaries."""
+    mapped_schedule = []
+
+    for schedule in schedules:
+        entry = {
+            'medical_staff': schedule.medical_personnel_id,
+            'appointment_time': (schedule.appointment_minute_of_day_start, schedule.appointment_minute_of_day_end),
+            'exam_type': schedule.exam_type,
+            'weekday': schedule.weekday,
+            'patient': schedule.patient_id,
+            'room': schedule.room
+        }
+        mapped_schedule.append(entry)
+    return mapped_schedule
+
+#def plot_schedule(schedule):
+#    """Plot the schedule for a week."""
+#    # Convert weekday numbers to names
+#    weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+#
+#    # Create a figure and axis for the plot
+#    fig, ax = plt.subplots(figsize=(15, 8))
+#
+#    for entry in schedule:
+#        start_hour = entry['appointment_time'][0] // 60
+#        start_minute = entry['appointment_time'][0] % 60
+#        end_hour = entry['appointment_time'][1] // 60
+#        end_minute = entry['appointment_time'][1] % 60
+#
+#        start_time = datetime.time(hour=start_hour, minute=start_minute)
+#        end_time = datetime.time(hour=end_hour, minute=end_minute)
+#
+#        ax.plot(
+#            [entry['weekday'], entry['weekday']],
+#            [start_hour + start_minute / 60, end_hour + end_minute / 60],
+#            label=f"{entry['exam_type']} ({entry['room']})",
+#            linewidth=2
+#        )
+#
+#    ax.set_xticks(range(7))
+#    ax.set_xticklabels(weekdays)
+#    ax.set_xlabel('Day of the Week')
+#    ax.set_ylabel('Hour of the Day')
+#    ax.set_title('Weekly Schedule')
+#    ax.grid(True)
+#    ax.legend(loc='upper right', fontsize='small')
+#
+#    plt.show()
+
+import matplotlib.pyplot as plt
+
+def display_schedule_table(schedule):
+    weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+    # Criar lista de registros para a tabela
+    table_data = []
+    for entry in schedule:
+        start_hour = entry['appointment_time'][0] // 60
+        start_minute = entry['appointment_time'][0] % 60
+        end_hour = entry['appointment_time'][1] // 60
+        end_minute = entry['appointment_time'][1] % 60
+
+        start_time = f"{start_hour:02d}:{start_minute:02d}"
+        end_time = f"{end_hour:02d}:{end_minute:02d}"
+
+        table_data.append({
+            'Weekday': weekdays[entry['weekday']],
+            'Start Time': start_time,
+            'End Time': end_time,
+            'Patient ID': entry['patient'],
+            'Exam Type': entry['exam_type'],
+            'Medical Staff': entry['medical_staff'],
+            'Room': entry['room']
+        })
+
+    # Criar DataFrame ordenado por dia da semana e horário de início
+    df = pd.DataFrame(table_data)
+    df['Weekday Order'] = df['Weekday'].apply(lambda x: weekdays.index(x))
+    df['Start Time (Minutes)'] = df['Start Time'].apply(lambda x: int(x.split(':')[0]) * 60 + int(x.split(':')[1]))
+    df = df.sort_values(by=['Weekday Order', 'Start Time (Minutes)'])
+
+    # Remover colunas auxiliares
+    df = df.drop(columns=['Weekday Order', 'Start Time (Minutes)'])
+
+    # Criar figura para o gráfico da tabela
+    fig, ax = plt.subplots(figsize=(10, len(df) * 0.5))
+    ax.axis('tight')
+    ax.axis('off')
+
+    # Adicionar a tabela ao gráfico
+    tbl = table.table(
+        ax,
+        cellText=df.values,
+        colLabels=df.columns,
+        cellLoc='center',
+        loc='center'
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(10)
+    tbl.auto_set_column_width(col=list(range(len(df.columns))))
+
+    plt.show()
+
+
+
+#main()
+
+
+
+
 
