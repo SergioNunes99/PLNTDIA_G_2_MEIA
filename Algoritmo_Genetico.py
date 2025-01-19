@@ -16,10 +16,12 @@ import random
 import string
 from functools import reduce
 
+from matplotlib import pyplot as plt
+
 #============================================================================================================
 #Algorithm optimization parameters
 
-CROSSING_RATE = 0.7
+CROSSING_RATE = 0.6
 SUBSTITUTION_RATE = 0.4
 MUTATION_RATE = 0.05
 
@@ -44,16 +46,24 @@ EXAMS_DURATION = {'BT': 10,
 EXAM_COUNT = len(EXAMS_TYPES)
 
 #================================ FITNESS =======================================================================
-PRIORITY_BEST_CASE = 0
-PRIORITY_WORST_CASE= 0
 
-FITNESS_ERRORS_WEIGHT = 0.3
+FITNESS_ERRORS_WEIGHT = 1
 FITNESS_UNSCHEDULED_EXAMS_WEIGHT = 0.3
 FITNESS_PRIORITY_WEIGHT = 0.3
 FITNESS_PREFERENCE_WEIGHT = 0.1
 
 #================================================================================================================
+#METRICS
+average_fitness_values = []
+best_fitness_values = []
 
+
+
+
+
+
+
+#==============================================================================================================
 #ROOMS
 rooms = ['room1', 'room2', 'room3', 'room4', 'room5', 'room6', 'room7']
 
@@ -105,6 +115,14 @@ PATIENT_PRIORITY = {
 }
 
 PATIENT_COUNT = len(PATIENT_PREFERENCE)
+MAX_PRIORITY = max(PATIENT_PRIORITY.values())
+MIN_PRIORITY = min(PATIENT_PRIORITY.values())
+
+
+PRIORITY_MAX= reduce(lambda a, b: a + b, [MAX_PRIORITY * x for x in range(0, PATIENT_COUNT* EXAM_COUNT)])
+PRIORITY_MIN= reduce(lambda a, b: a + b, [MIN_PRIORITY * x for x in range(0, PATIENT_COUNT* EXAM_COUNT)])
+
+
 
 #MEDICAL_STAFF
 #Medical staff represented by sequential, ordered numbers, initiating in 1!!
@@ -151,6 +169,10 @@ class Gene:
 class Individual:
     def __init__(self, genes: [Gene]):
         self.genes = genes
+
+    def __str__(self):
+        for gene in self.genes:
+            return gene.__str__()
 
 
 #Combine the given intervals
@@ -323,7 +345,11 @@ def get_appointment_disponibility(appointment_code, genes):
         #For each weekday, check the disponibility of each medical staff
         while all_medical_staff and not appointment_disponibility:
             # Random medical staff
-            medical_staff = all_medical_staff[random.randint(1, len(all_medical_staff) - 1)]
+            if len(all_medical_staff) ==1:
+                medical_staff = all_medical_staff[0]
+            else:
+                medical_staff = all_medical_staff[random.randint(1, len(all_medical_staff) - 1)]
+
             all_medical_staff.remove(medical_staff)
 
             medical_disponibility = get_medical_staff_disponibility(appointment_code, weekday, medical_staff, genes)
@@ -353,11 +379,11 @@ def get_appointment_disponibility(appointment_code, genes):
 
 
 #Generates the initial population with 100 individuals
-def generate_population():
+def generate_population(initial_population_size, individual_genes_size):
     #If we have 15 patients and 6 exams types, we need to schedule 15*6 appointments, thus our individual must have 90 Genes for this specific case
     population = []
 
-    for j in range(0, INITIAL_POPULATION_SIZE):
+    for j in range(0, initial_population_size):
         individual_genes = []
 
         medical_staff = False
@@ -365,7 +391,7 @@ def generate_population():
         weekday = False
         patient = False
 
-        for i in range(0, INDIVIDUAL_GENES_SIZE):
+        for i in range(0, individual_genes_size):
             appointment_time = []
             appointment_time_loops = 0
 
@@ -407,15 +433,16 @@ def calculate_patient_exams_errors(individual):
     '''
     errors_count = 0
 
-    for patient in range(0, PATIENT_COUNT):
+    for patient_id in PATIENT_PRIORITY:
         for exam in  EXAMS_TYPES:
-            filter_count_result = len(list(filter(lambda x: x.patient_id == patient and x.exam_type == exam, individual.genes)))
+            filter_count_result = len(list(filter(lambda x: x.patient_id == patient_id and x.exam_type == exam, individual.genes)))
             if filter_count_result > 1:
-                errors_count += filter_count_result
+                errors_count += filter_count_result-1
             elif filter_count_result == 0:
                 errors_count += 1
 
-    normalized_value = normalize(errors_count, 0, PATIENT_COUNT* len(individual.genes))
+    normalized_value = normalize(errors_count, 0,
+                                 (len(individual.genes)-1) + (EXAM_COUNT-1) + ((PATIENT_COUNT-1) * EXAM_COUNT))
 
     return normalized_value
 
@@ -426,9 +453,9 @@ def calculate_unscheduled_exams_due_lack_disponibility(individual):
 
     number_exames_unscheduled= len(list(filter(lambda x: x.appointment_minute_of_day_start == 0, individual.genes)))
 
-    return normalize(number_exames_unscheduled, 0, PATIENT_COUNT* EXAM_COUNT)
+    return normalize(number_exames_unscheduled, 0, len(individual.genes))
 
-def calculate_priority_assertiveness(individual):
+def calculate_priority_assertiveness(individual, priority_min, priority_max):
     '''
     Calculates the priority assertiveness of the individual
     '''
@@ -452,10 +479,7 @@ def calculate_priority_assertiveness(individual):
 
     fitness = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(ordered_priorities) ])
 
-    res = 1- normalize(fitness, PRIORITY_BEST_CASE, PRIORITY_WORST_CASE)
-
-    if res > 1:
-        res = 1
+    res = normalize(fitness, priority_min, priority_max)
 
     return res
 
@@ -508,7 +532,7 @@ def calculate_fitness_function(individual):
     unscheduled_exams_penalization = calculate_unscheduled_exams_due_lack_disponibility(individual)
 
     #a higher output from this function indicates a better priority assertiveness
-    priority_assertiveness_penalization = calculate_priority_assertiveness(individual)
+    priority_assertiveness_penalization = calculate_priority_assertiveness(individual, PRIORITY_MIN, PRIORITY_MAX)
 
     patient_preference_assertiveness_penalization = calculate_patient_preference_assertiveness(individual)
 
@@ -539,6 +563,8 @@ def calculate_fitness_function(individual):
 
 
 def normalize(value, min_value, max_value):
+    if max_value == min_value:
+        return 0
     return (value - min_value) / (max_value - min_value)
 
 def selection(population_fitness_scores):
@@ -594,7 +620,7 @@ def selection_and_crossover(population):
 
         population_fitness_score.append((individual, individual1_fitness))
 
-    population_fitness_score.sort(key=lambda x: x[1])
+    population_fitness_score.sort(key=lambda x: x[1], reverse=True)
     top_individual = population_fitness_score.pop(0)
     print("TOP INDIVIDUAL: SCORE: "+ str(top_individual[1]* 100) + "%")
 
@@ -635,7 +661,7 @@ def selection_and_crossover(population):
 #     return individuals
 
 
-def mutation(individuals):
+def mutation_old(individuals):
     """
     To mutate the individual, we will assign random values to all the genes
     internal values
@@ -670,6 +696,28 @@ def mutation(individuals):
 
     return individuals
 
+def mutation(individuals):
+    for individual in individuals:
+        if random.random() > MUTATION_RATE:
+            continue
+
+        for i in range(len(individual.genes)):
+            exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
+            patient = random.randint(1, PATIENT_COUNT)
+            appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, individual.genes)
+
+            individual.genes[i] = Gene(
+                medical_personnel_id=medical_staff,
+                appointment_minute_of_day_start=appointment_time[0],
+                appointment_minute_of_day_end=appointment_time[1],
+                exam_type=exam_type,
+                weekday=weekday,
+                patient_id=patient,
+                room=room,
+            )
+    return individuals
+
+
 def crossover(parents):
     """
     Crossover can generate unfeasible solutions
@@ -697,25 +745,21 @@ def crossover(parents):
 
     return descendents
 
-def calculate_helper_values(population):
-    global PRIORITY_BEST_CASE
-    global PRIORITY_WORST_CASE
 
-    genes =copy.deepcopy(population[0].genes)
 
-    priorities = []
+def calculate_metrics(population):
+    global average_fitness_values
+    global best_fitness_values
 
-    for gene in genes:
-        priorities.append(PATIENT_PRIORITY[gene.patient_id])
+    fitness = list(map(lambda x: calculate_fitness_function(x), population))
+    average_population_fitness = reduce(lambda x, y: x + y, fitness, 0) / len(population)
 
-    priorities.sort()
-    best_scenario = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(priorities)])
-    priorities.sort(reverse=True)
+    print(f"fitness antes de ordenar: {fitness[0]}")
+    average_fitness_values.append(average_population_fitness)
+    top_individual_fitness= max(fitness)
+    best_fitness_values.append(top_individual_fitness)
 
-    worst_scenario = reduce(lambda a, b: a + b, [x * index for index, x in enumerate(priorities)])
-
-    PRIORITY_BEST_CASE= best_scenario
-    PRIORITY_WORST_CASE= worst_scenario
+    return
 
 def main():
 
@@ -725,30 +769,41 @@ def main():
     #    - TAXA DE SUBSTITUIÇÃO
     #    - CRITÉRIO DE PARAGEM
 
-    population = generate_population()
+    population = generate_population(INITIAL_POPULATION_SIZE, INDIVIDUAL_GENES_SIZE)
 
-    calculate_helper_values(population)
-    print(population)
+    print(str(population))
 
     generation_number=1
 
     while generation_number < NUMBER_OF_GENERATIONS:
         print("GENERATION NUMBER: " +str(generation_number))
         selected_population, descendents = selection_and_crossover(population)
-        print("SELECTED POPULATION COUNT: " + str(len(selected_population)))
+
         #descendents = crossover(selected_population)
         mutated=mutation(descendents)
 
         population = selected_population + mutated
-        print("END POPULATION COUNT: " + str(len(population)))
 
+        calculate_metrics(population)
+        print(f"Average population fitness: {str(average_fitness_values[-1])}")
         generation_number += 1
 
 
-
+    #population.sort(key=lambda x: x.fitness, reverse=True)
     i=0
     for individual in population:
         print(f"INDIVIDUAL {str(i)}: fitness: {str(calculate_fitness_function(individual))}")
         i += 1
 
+    generations = list(range(1, len(average_fitness_values) + 1))
+
+    plt.plot(generations, average_fitness_values, label="Fitness Médio")
+    plt.plot(generations, best_fitness_values, label="Melhor Fitness")
+    plt.xlabel("Geração")
+    plt.ylabel("Fitness")
+    plt.title("Evolução do Fitness")
+    plt.legend()
+    plt.show()
+
 main()
+
