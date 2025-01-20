@@ -1,6 +1,6 @@
 from functools import reduce
 
-import Algoritmo_Genetico as ag
+import genetic_algorithm as ag
 
 
 TEST_EXAMS_TYPES = ['BT','ECG']

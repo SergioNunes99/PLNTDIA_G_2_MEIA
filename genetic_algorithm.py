@@ -24,16 +24,17 @@ from matplotlib import pyplot as plt, table
 # ============================================================================================================
 # Algorithm optimization parameters
 
-CROSSING_RATE = 0.7
-SUBSTITUTION_RATE = 0.7
-MUTATION_RATE = 0.8
+CROSSING_RATE = 0.6
+SUBSTITUTION_RATE = 0.6
+MUTATION_RATE = 0.5
 PITY_SELECTION_RATE = 0.10
 
 
 # ============================================================================================================
 
 POPULATION_SIZE = 100
-NUMBER_OF_GENERATIONS = 2000
+NUMBER_OF_GENERATIONS = 1000
+MAX_GENERATIONS_STAGNATED = 50
 
 # EXAMS
 EXAMS_TYPES = ['BT', 'ECG', 'EG', 'AC', 'ECO', 'RX']
@@ -59,7 +60,8 @@ FITNESS_PREFERENCE_WEIGHT = 0.1
 # METRICS
 average_fitness_values = []
 best_fitness_values = []
-
+previous_best_fitness_value = 0
+STAGNATION_COUNTER = 0
 # ==============================================================================================================
 # ROOMS
 ROOMS = ['room1', 'room2', 'room3', 'room4', 'room5', 'room6', 'room7']
@@ -239,9 +241,6 @@ class Gene:
         self.room = room
 
     def __str__(self):
-        # return (f"Medical Staff={self.medical_personnel_id}, appointment_minute_of_day_start={self.appointment_minute_of_day_start}, "
-        #        f"appointment_minute_of_day_end={self.appointment_minute_of_day_end}, exam_type={self.exam_type}, weekday={self.weekday},"
-        #        f"patient_id={self.patient_id}, room={self.room}")
         return (
             f"{self.medical_personnel_id}, {self.appointment_minute_of_day_start}, "
             f"{self.appointment_minute_of_day_end}, {self.exam_type}, {self.weekday},"
@@ -457,7 +456,6 @@ def get_appointment_disponibility(appointment_code, genes):
             appointment_disponibility = list(
                 filter(lambda x: x[1] - x[0] >= appointment_time, medical_room_joined_disponibility))
 
-    # O que fazer caso nao haja disponibilidade para a consulta????????????????
     if not appointment_disponibility:
         return False, False, False, 8
 
@@ -491,7 +489,7 @@ def generate_population(initial_population_size, individual_genes_size):
             appointment_time = []
             appointment_time_loops = 0
 
-            # Allow 1000 iteration to find a feasible time for the  appointment... If no feadible solution is found,
+            # Allow 1000 iteration to find a feasible time for the  appointment... If no feasible solution is found,
             # the time of the appointment is set to [0, 0], marking this as an unfeasible solution! Hence, this needs to be considered
             # on the fitness function, so we penalize those solutions.
             #
@@ -518,8 +516,6 @@ def generate_population(initial_population_size, individual_genes_size):
             individual_genes.append(gene)
 
         individual = Individual(genes=individual_genes, generation_born=1, operation="INITIAL_POPULATION", metrics=[])
-        # if j == 2:
-        # write_individual_to_csv(individual, "Genetic_Individual.csv")
         population.append(individual)
 
     return population
@@ -581,25 +577,6 @@ def calculate_overlaps(individual):
 
     return normalized_value
 
-
-# def calculate_scheduling_overlaps(individual):
-#    overlaps_count = 0
-#
-#    for gene in individual.genes:
-#        overlaps_count = len(list(filter(lambda x: x.room == gene.room
-#                                                   and (x.weekday == gene.weekday or x.medical_personnel_id ==gene.medical_personnel_id)
-#                                                   and is_Time_overlaped(x.exam_type, x.appointment_minute_of_day_start,
-#                                                                         gene.appointment_minute_of_day_start, gene.exam_type),
-#                                         individual.genes)))
-#        if overlaps_count > 1:
-#            overlaps_count += overlaps_count
-#
-#
-#    normalized_value = normalize(errors_count, 0,
-#                                 (len(individual.genes) - 1) + (EXAM_COUNT - 1) + ((PATIENT_COUNT - 1) * EXAM_COUNT))
-#
-#    return normalized_value
-
 def calculate_unscheduled_exams_due_lack_disponibility(individual):
     '''
     Calculates the number of exams not scheduled due to lack of disponibility
@@ -618,9 +595,6 @@ def calculate_priority_assertiveness(individual, priority_min, priority_max):
 
     # order the appointments by time
     genes.sort(key=lambda x: (x.weekday, x.appointment_minute_of_day_start))
-
-    # TODO MUDAR SORT PARA TER EMCONTA APENAS AGENDAMENTOS COM DATA
-    # TODO ADICIONAR RESTANTES POR ORDEM DE PRIORIDADES
 
     # get the priorities of the patients from the appointments, ordered by appointment date
     ordered_priorities = list(map(lambda x: PATIENT_PRIORITY[x.patient_id], genes))
@@ -699,12 +673,6 @@ def calculate_fitness_function(individual):
 
     normalized_penalization = total_weighted_penalization / max_penalization_pond
 
-    # print(f"Fitness calculation - {patient_exams_errors_penalization},"
-    #    f"{unscheduled_exams_penalization}, "
-    #    f"{priority_assertiveness_penalization}, "
-    #    f"{patient_preference_assertiveness_penalization}."
-    #    f"RESULT: {round(1 - normalized_penalization, 4)}")
-
     individual.metrics = [f"Exam errors: {patient_exams_errors_penalization} ",
                           f"Unscheduled exams: {unscheduled_exams_penalization}",
                           f"Priority assertiveness: {priority_assertiveness_penalization}",
@@ -741,9 +709,6 @@ def selection(population_fitness_scores):
     num_pity_selections = math.ceil(num_selections * PITY_SELECTION_RATE)
     num_elitist_selections = math.ceil(num_selections - num_pity_selections)
 
-    #selected_pity_individuals= generate_population(num_pity_selections, INDIVIDUAL_GENES_COUNT)
-
-    # select elite
     if num_elitist_selections % 2 == 0:
         selected_elite_individuals = population[:num_elitist_selections]
     else:
@@ -751,19 +716,6 @@ def selection(population_fitness_scores):
 
     selected_pity_individuals = population[-num_pity_selections:]
 
-
-    #selected_elite_individuals=  selected_elite_individuals[:len(selected_elite_individuals) // 2]
-    #elite_mutated = mutation(selected_elite_individuals, 1)
-    #elite_mutated_fitness = []
-    #for individual in elite_mutated:
-     #   individual1_fitness = calculate_fitness_function(individual)
-    #    elite_mutated_fitness.append((individual, individual1_fitness))
-
-    #elite_mutated_fitness.sort(key=lambda x: x[1], reverse=True)
-    #elite_mutated = list(map(lambda x: x[0], elite_mutated_fitness))
-    #elite_mutated = elite_mutated[:num_pity_selections]
-
-    #return selected_elite_individuals+ elite_mutated  + selected_pity_individuals
     return selected_elite_individuals + selected_pity_individuals
 
 
@@ -823,7 +775,6 @@ def mutate_individual(individual):
             room=individual.genes[i].room if chromosome != 5 else random_room,
         )
         new_individual_genes[i] = new_individual_gene
-        #new_individual_genes.append(new_individual_gene)
 
     new_individual = Individual(new_individual_genes, generation_born=GENERATION_NUMBER, operation="MUTATION",
                                     metrics=[])
@@ -839,37 +790,6 @@ def mutation(individuals, mutation_rate = MUTATION_RATE):
 
         new_individuals.append(mutate_individual(individual))
     return new_individuals
-
-
-#def mutation_hardcore(individuals):
-#    for individual in individuals:
-#        if random.random() > MUTATION_RATE:
-#            continue
-#
-#        for i in range(math.ceil(len(individual.genes) / 2)):
-#            exam_type = EXAMS_TYPES[random.randint(0, EXAM_COUNT - 1)]
-#            patient = random.randint(1, PATIENT_COUNT)
-#            appointment_time, medical_staff, room, weekday = get_appointment_disponibility(exam_type, individual.genes)
-#
-#            random_appointment_time = random.choice(range(420, 950, 5))
-#            exam_duration = EXAMS_DURATION[exam_type]
-#            aggressive_mutation = random.random() > MUTATION_RATE
-#            random_weekday = random.randint(0, 6)
-#            random_room = ROOMS[random.randint(0, len(ROOMS) - 1)]
-#            individual.genes[i] = Gene(
-#                medical_personnel_id=individual.genes[i].medical_personnel_id if aggressive_mutation else medical_staff,
-#                appointment_minute_of_day_start=appointment_time[0] if aggressive_mutation else random_appointment_time,
-#                appointment_minute_of_day_end=appointment_time[
-#                    1] if aggressive_mutation else random_appointment_time + exam_duration,
-#                exam_type=exam_type,
-#                weekday=weekday if aggressive_mutation else random_weekday,
-#                patient_id=patient,
-#                room=room if aggressive_mutation else random_room,
-#            )
-#            individual.generation_born = GENERATION_NUMBER
-#            individual.operation = "MUTATION"
-#
-#    return individuals
 
 
 def crossover(parents):
@@ -919,21 +839,58 @@ def crossover(parents):
 
     return descendents
 
+# HELPERS ==============================================================================================
+def parse_schedule(schedules):
+    """Parse the schedule string into a list of dictionaries."""
+    mapped_schedule = []
+
+    for schedule in schedules:
+        entry = {
+            'medical_staff': schedule.medical_personnel_id,
+            'appointment_time': (schedule.appointment_minute_of_day_start, schedule.appointment_minute_of_day_end),
+            'exam_type': schedule.exam_type,
+            'weekday': schedule.weekday,
+            'patient': schedule.patient_id,
+            'room': schedule.room
+        }
+        mapped_schedule.append(entry)
+    return mapped_schedule
+
+def drawFitnessFunction():
+    generations = list(range(1, len(average_fitness_values) + 1))
+    plt.plot(generations, average_fitness_values, label="Avg. Population Fitness")
+    plt.plot(generations, best_fitness_values, label="Best Individual Fitness")
+    plt.xlabel("Generations")
+    plt.ylabel("Fitness")
+    plt.title("Fitness Evolution")
+    plt.legend()
+    plt.show()
 
 def calculate_metrics(population):
     global average_fitness_values
     global best_fitness_values
+    global previous_best_fitness_value
+    global STAGNATION_COUNTER
 
     fitness = list(map(lambda x: calculate_fitness_function(x), population))
     average_population_fitness = reduce(lambda x, y: x + y, fitness, 0) / len(population)
 
-    # print(f"fitness antes de ordenar: {fitness[0]}")
-    average_fitness_values.append(average_population_fitness)
-    top_individual_fitness = max(fitness)
+    average_fitness_values.append(round(average_population_fitness,3) * 100)
+    top_individual_fitness = round(max(fitness),3) * 100
+
+    if top_individual_fitness > previous_best_fitness_value:
+        previous_best_fitness_value = top_individual_fitness
+        STAGNATION_COUNTER=0
+    else:
+        STAGNATION_COUNTER+=1
+
     best_fitness_values.append(top_individual_fitness)
 
+    if GENERATION_NUMBER in [200, 300, 400, 500, 600, 700, 800, 1000]:
+        drawFitnessFunction()
     return
 
+#======================================================================================================
 
 def main():
     population = generate_population(POPULATION_SIZE, INDIVIDUAL_GENES_COUNT)
@@ -942,11 +899,10 @@ def main():
 
     GENERATION_NUMBER = 1
 
-    while GENERATION_NUMBER < NUMBER_OF_GENERATIONS:
+    while GENERATION_NUMBER < NUMBER_OF_GENERATIONS and STAGNATION_COUNTER < MAX_GENERATIONS_STAGNATED:
         print("GENERATION NUMBER: " + str(GENERATION_NUMBER))
         selected_population, descendents = selection_and_crossover(population)
 
-        # descendents = crossover(selected_population)
         mutated = mutation(descendents)
 
         population = selected_population + mutated
@@ -968,34 +924,11 @@ def main():
 
     print(str(population[index_best].genes))
 
-    mapped_schedule = parse_schedule(population[index_best].genes)
-    display_schedule_table(mapped_schedule)
-    generations = list(range(1, len(average_fitness_values) + 1))
-
-    plt.plot(generations, average_fitness_values, label="Avg. Population Fitness")
-    plt.plot(generations, best_fitness_values, label="Best Individual Fitness")
-    plt.xlabel("Generations")
-    plt.ylabel("Fitness")
-    plt.title("Fitness Evolution")
-    plt.legend()
-    plt.show()
+    drawFitnessFunction()
 
 
-def parse_schedule(schedules):
-    """Parse the schedule string into a list of dictionaries."""
-    mapped_schedule = []
 
-    for schedule in schedules:
-        entry = {
-            'medical_staff': schedule.medical_personnel_id,
-            'appointment_time': (schedule.appointment_minute_of_day_start, schedule.appointment_minute_of_day_end),
-            'exam_type': schedule.exam_type,
-            'weekday': schedule.weekday,
-            'patient': schedule.patient_id,
-            'room': schedule.room
-        }
-        mapped_schedule.append(entry)
-    return mapped_schedule
+
 
 
 import matplotlib.pyplot as plt
@@ -1004,7 +937,7 @@ import matplotlib.pyplot as plt
 def display_schedule_table(schedule):
     weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-    # Criar lista de registros para a tabela
+
     table_data = []
     for entry in schedule:
         start_hour = entry['appointment_time'][0] // 60
@@ -1025,21 +958,18 @@ def display_schedule_table(schedule):
             'Room': entry['room']
         })
 
-    # Criar DataFrame ordenado por dia da semana e horário de início
+
     df = pd.DataFrame(table_data)
     df['Weekday Order'] = df['Weekday'].apply(lambda x: weekdays.index(x))
     df['Start Time (Minutes)'] = df['Start Time'].apply(lambda x: int(x.split(':')[0]) * 60 + int(x.split(':')[1]))
     df = df.sort_values(by=['Weekday Order', 'Start Time (Minutes)'])
 
-    # Remover colunas auxiliares
     df = df.drop(columns=['Weekday Order', 'Start Time (Minutes)'])
 
-    # Criar figura para o gráfico da tabela
     fig, ax = plt.subplots(figsize=(10, len(df) * 0.5))
     ax.axis('tight')
     ax.axis('off')
 
-    # Adicionar a tabela ao gráfico
     tbl = table.table(
         ax,
         cellText=df.values,
